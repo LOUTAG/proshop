@@ -1,0 +1,271 @@
+const mongoose = require("mongoose");
+const Subscription = require("../models/Subscription");
+const Plan = require("../models/Plan");
+const User = require("../models/User");
+const asyncHandler = require("express-async-handler");
+const axios = require("axios");
+const { generatePaypalAccessToken } = require("../config/token");
+
+// module.exports.createSubscription = asyncHandler(async (req, res) => {
+//   /*** GENERATE ACCESS TOKEN ***/
+//   const accessToken = await generatePaypalAccessToken();
+
+//   /*** PREPARE THE REQUEST ***/
+//   const url = `${process.env.PAYPAL_BASE_URL}/v1/catalogs/products`;
+//   const payload = {
+//     name: "Abonnement Blue Women In Love",
+//     type: "DIGITAL",
+//     category: "HEALTH_AND_NUTRITION",
+//     image_url:
+//       "https://en.wikipedia.org/wiki/Blue_Nudes#/media/File:Blue_Nudes_Henri_Matisse.jpg",
+//     home_url:
+//       "https://upload.wikimedia.org/wikipedia/commons/0/0a/Blue_sky_south_of_France.jpg",
+//   };
+//   const config = {
+//     headers: {
+//       "Content-Type": "application/json",
+//       Authorization: `Bearer ${accessToken}`,
+//     },
+//   };
+//   try {
+//     const response = await axios.post(url, payload, config);
+//     const subscription = new Subscription({
+//       _id: new mongoose.Types.ObjectId(),
+//       product_id: response.data.id,
+//       name: response.data.name,
+//       description: response.data.descrition,
+//       create_time: response.data.create_time,
+//     });
+//     await subscription.save();
+//     res.status(200).json(response.data);
+//   } catch (error) {
+//     res.status(500).json(error);
+//   }
+// });
+
+module.exports.productDetails = asyncHandler(async (req, res) => {
+  /*** CHECK IF USER IS ADMIN ***/
+  const { isAdmin } = req.user;
+  if (!isAdmin) {
+    res.status(403);
+    throw new Error("Access denied");
+  }
+
+  try {
+    /*** GET THE PRODUCT SUBSCRIPTION ID ***/
+    const product = await Subscription.findOne();
+    const productID = product.product_id;
+
+    /*** GENERATE ACCESS TOKEN ***/
+    const accessToken = await generatePaypalAccessToken();
+    const url = `${process.env.PAYPAL_BASE_URL}/v1/catalogs/products/${productID}`;
+    const config = {
+      headers: {
+        "Content-type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+    };
+    const response = await axios(url, config);
+    res.status(200).json(response.data);
+  } catch (error) {
+    if (res.statusCode !== 403) res.statusCode = 404;
+    throw error;
+  }
+});
+
+module.exports.createPlan = asyncHandler(async (req, res) => {
+  /*** CHECK IF USER IS ADMIN ***/
+  const { isAdmin } = req.user;
+  if (!isAdmin) {
+    res.status(403);
+    throw new Error("Access denied");
+  }
+
+  /*** GET PRODUCT ID ***/
+  const { productID, name, description } = req.body;
+
+  /*** GENERATE ACCESS TOKEN ***/
+  const accessToken = await generatePaypalAccessToken();
+
+  /*** PREPARE THE REQUEST ***/
+  const url = `${process.env.PAYPAL_BASE_URL}/v1/billing/plans`;
+  const payload = {
+    product_id: productID,
+    name: name,
+    description: description,
+    status: "ACTIVE",
+    billing_cycles: [
+      {
+        frequency: {
+          interval_unit: "DAY",
+          interval_count: 1,
+        },
+        tenure_type: "REGULAR",
+        sequence: 1,
+        pricing_scheme: {
+          fixed_price: {
+            currency_code: "EUR",
+            value: "1.99",
+          },
+        },
+        total_cycles: 0,
+      },
+    ],
+    payment_preferences: {
+      auto_bill_outstanding: true,
+      payment_failure_threshold: 2,
+      setup_fee: {
+        value: "0",
+        currency_code: "EUR",
+      },
+      setup_fee_failure_action: "CANCEL",
+    },
+    taxes: {
+      percentage: "20",
+      inclusive: true,
+    },
+  };
+  const config = {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+  };
+  try {
+    const response = await axios.post(url, payload, config);
+    console.log(response.data);
+    const plan = new Plan({
+      _id: new mongoose.Types.ObjectId(),
+      plan_id: response.data.id,
+      product_id: response.data.product_id,
+      name: response.data.name,
+      description: response.data.description,
+    });
+    await plan.save();
+    console.log(`plan ${plan.name} has been created with success`);
+    res.status(200).json(plan);
+  } catch (error) {
+    res.status(404);
+    throw error;
+  }
+});
+
+module.exports.activateSubscription = asyncHandler(async (req, res) => {
+  const subscriptionID = req.params.id;
+  const userID = req.user._id;
+  const isSubscriber = req.user?.isSubscriber;
+
+  // /*** GENERATE ACCESS TOKEN ***/
+  const accessToken = await generatePaypalAccessToken();
+
+  // /*** PREPARE THE REQUEST ***/
+  const url = `${process.env.PAYPAL_BASE_URL}/v1/billing/subscriptions/${subscriptionID}`;
+  const config = {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+  };
+  try {
+    const subscription = await axios.get(url, config);
+    if (subscription.data.status !== "ACTIVE") {
+      if (isSubscriber === "ACTIVE") {
+        await User.findOneAndUpdate(
+          { _id: userID },
+          { $set: { isSubscriber: true } }
+        );
+      }
+      res.status(403);
+      throw new Error(
+        `We are sorry ${req.user.firstName}, but your subscription isn't active.`
+      );
+    }
+    const user = await User.findOneAndUpdate(
+      { _id: userID },
+      { $set: { isSubscriber: true }, subscription_id: subscription.data.id },
+      { new: true }
+    );
+    res.json(`Welcome ${user.firstName}, your subscription is actived`);
+  } catch (error) {
+    res.status(500);
+    throw new Error(error);
+  }
+});
+
+// @desc webhooks subscription
+// @route Post /api/subscriptions/webhooks
+// @access Public
+module.exports.webhooks = asyncHandler(async (req, res) => {
+  console.log(req.body);
+  try {
+    const eventType = req?.body?.event_type;
+    if (!eventType) {
+      throw new Error(
+        "Check Paypal Webhook event names : https://developer.paypal.com/api/rest/webhooks/event-names/#subscriptions"
+      );
+    }
+    switch (eventType) {
+      case "BILLING.SUBSCRIPTION.ACTIVATED": {
+        const subscriptionID = req.body.resource.id;
+        try {
+          await User.findOneAndUpdate(
+            { subscription_id: subscriptionID },
+            { $set: { isSubscriber: true } }
+          );
+          return res.status(200).json();
+        } catch (error) {
+          throw error;
+        }
+      }
+      case "BILLING.SUBSCRIPTION.SUSPENDED":
+      case "BILLING.SUBSCRIPTION.CANCELLED": {
+        const subscriptionID = req.body.resource.id;
+        try {
+          await User.findOneAndUpdate(
+            { subscription_id: subscriptionID },
+            { $set: { isSubscriber: false } }
+          );
+          return res.status(200).json();
+        } catch (error) {
+          throw error;
+        }
+      }
+      default:
+        console.log(req.body.event_type);
+        res.status(200).json();
+    }
+  } catch (error) {
+    console.log(error);
+    res.status(500);
+    throw error;
+  }
+});
+
+module.exports.createAnSubscription = asyncHandler(async (req, res) => {
+  /*** GENERATE ACCESS TOKEN ***/
+  const accessToken = await generatePaypalAccessToken();
+  // /*** PREPARE THE REQUEST ***/
+  const url = `${process.env.PAYPAL_BASE_URL}/v1/billing/subscriptions`;
+
+  const payload = {
+    plan_id: req.body.plan_id,
+    application_context: {
+      brand_name: "BLUE WOMAN IN LOVE",
+      shipping_preference: "NO_SHIPPING",
+      user_action: "SUBSCRIBE_NOW",
+    },
+  };
+  const config = {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+  };
+  try {
+    const subscription = await axios.post(url, payload, config);
+    res.status(200).json(subscription.data);
+  } catch (error) {
+    res.status(500);
+    throw error;
+  }
+});

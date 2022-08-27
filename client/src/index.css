@@ -11,3 +11,19 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+.stepFour {
+  background: linear-gradient(90deg, rgba(249,190,143,1) 0%, rgba(242,151,152,1) 33%, rgba(235,112,160,1) 66%, rgba(227,72,169,1) 100%);
+}
+.stepThree{
+  background: linear-gradient(90deg, rgba(249,190,143,1) 0%, rgba(242,151,152,1) 33%, rgba(235,112,160,1) 66%, rgba(203,213,225,1) 100%);
+}
+.stepTwo{
+  background: linear-gradient(90deg, rgba(249,190,143,1) 0%, rgba(242,151,152,1) 33%, rgba(203,213,225,1) 66%, rgba(203,213,225,1) 100%);
+}
+.stepOne{
+  background: linear-gradient(90deg, rgba(249,190,143,1) 0%, rgba(203,213,225,1) 33%, rgba(203,213,225,1) 66%, rgba(203,213,225,1) 100%);
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
