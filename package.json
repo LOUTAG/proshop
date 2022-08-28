@@ -8,7 +8,6 @@
     "npm": "6.14.11"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
     "client": "npm run start --prefix client",
     "server": "nodemon index.js",

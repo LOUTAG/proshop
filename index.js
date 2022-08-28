@@ -39,7 +39,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 
-if (process.env_NODE_ENV === "production") {
+if(process.env.NODE_ENV === "production") {
   app.use(express.static("client/build"));
   //front quest, take a look inside client/build
   const path = require("path");
