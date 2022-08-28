@@ -5,7 +5,6 @@ const mongoose = require("mongoose");
 const path = require("path");
 const { notFoundError } = require("./middlewares/notFoundError");
 const { errorHandler } = require("./middlewares/errorHandler");
-const http = require("http");
 
 /*** config dotenv  ***/
 dotenv.config();
@@ -19,10 +18,6 @@ mongoose.connection.on("error", () => {
   console.log("Database is not connected");
 });
 const app = express();
-
-//add socket.io
-const server = http.createServer(app);
-const io = require("socket.io")(server);
 
 /*** middlewares ***/
 app.use(cors());
@@ -60,23 +55,6 @@ app.use(notFoundError);
 /*** ERROR HANDLER ***/
 app.use(errorHandler);
 
-//webSocket connection
-var adminSocketid = false;
-io.on("connection", (socket) => {
-  socket.on("adminSocket", () => {
-    adminSocketid = socket.id;
-    socket.emit("displayCounter", io.engine.clientsCount);
-  });
-  if (adminSocketid && socket.id !== adminSocketid)
-    io.to(adminSocketid).emit("displayCounter", io.engine.clientsCount);
-
-  socket.on("disconnect", () =>
-    socket.id === adminSocketid
-      ? (adminSocketid = false)
-      : io.to(adminSocketid).emit("displayCounter", io.engine.clientsCount)
-  );
-});
-
 /*** PORT ***/
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, console.log(`app running port ${PORT}`));
+app.listen(PORT, console.log(`app running port ${PORT}`));
